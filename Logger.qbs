@@ -45,11 +45,12 @@ CppApplication
 	cpp.includePaths:
 	[
 		platform + "/",
-		"CMSIS/CoreSupport/",
-		"CMSIS/DeviceSupport/",
-		"Include/",
-		"Source/",
-		"Resources/"
+		"mcu_common/",
+		"stm32f0_hal/",
+		"stm32f0_hal/CMSIS/CoreSupport/",
+		"stm32f0_hal/CMSIS/DeviceSupport/",
+		"include/",
+		"source/"
 	]
 	files:
 	[
