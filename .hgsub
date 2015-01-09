@@ -1,0 +1,2 @@
+stm32f0_hal = ../stm32f0_hal
+mcu_common = ../mcu_common
