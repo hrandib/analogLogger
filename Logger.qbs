@@ -8,12 +8,12 @@ CppApplication
 	cpp.executableSuffix: ".elf"
 	cpp.optimization: "small"
 	cpp.debugInformation: false
-	cpp.defines: [ "STM32F030" ]
+	cpp.defines: [ "STM32F030", "DONTSETCLOCK" ]
 	property stringList commonLinkerCFlags:
 	[
 		"-mthumb",
-		"-mcpu=cortex-m0.small-multiply",
-		"-mtune=cortex-m0.small-multiply",
+		"-mcpu=cortex-m0",
+		"-mtune=cortex-m0",
 		"-flto"
 		//"-nostdlib", "-nodefaultlibs"
 	]

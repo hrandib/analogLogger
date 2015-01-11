@@ -1,23 +1,100 @@
 #include "stm32f0xx.h"
 
+constexpr uint64_t F_CPU = 54000000ULL;
+
 #include "pinlist.h"
 #include "utils.h"
 #include "delay.h"
 //#include "clock.h"
 #include "timers.h"
 //#include <cstdlib>
+#include "dma.h"
 #include "adc.h"
 #include "streams.h"
 
-using GreenLed = Mcucpp::Pb8;
-using BlueLed = Mcucpp::Pb7;
+using GreenLed = Mcucpp::Pa7;
+using flag = Mcucpp::Pb0;
 
 #define USARTECHO
 #include "usart.h"
 
 using namespace Mcucpp;
-using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::DefaultRemap<USART1_BASE>, 128, 16>;
+using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::RemapUsart1_Pa9Pa10, 128, 16>;
 DECLAREIRQ(Usart, USART1)
+
+void ClockInit()
+{
+	__IO uint32_t StartUpCounter = 0, HSEStatus = 0;
+
+	/* SYSCLK, HCLK, PCLK configuration ----------------------------------------*/
+	/* Enable HSE */
+	RCC->CR |= ((uint32_t)RCC_CR_HSEON);
+
+	/* Wait till HSE is ready and if Time out is reached exit */
+	do
+	{
+		HSEStatus = RCC->CR & RCC_CR_HSERDY;
+		StartUpCounter++;
+	} while((HSEStatus == 0) && (StartUpCounter != HSE_STARTUP_TIMEOUT));
+
+	if((RCC->CR & RCC_CR_HSERDY) != RESET)
+	{
+		HSEStatus = (uint32_t)0x01;
+	}
+	else
+	{
+		HSEStatus = (uint32_t)0x00;
+	}
+
+	if (HSEStatus == (uint32_t)0x01)
+	{
+		/* Enable Prefetch Buffer and set Flash Latency */
+		FLASH->ACR = FLASH_ACR_PRFTBE | FLASH_ACR_LATENCY;
+
+		/* HCLK = SYSCLK */
+		RCC->CFGR |= (uint32_t)RCC_CFGR_HPRE_DIV1;
+
+		/* PCLK = HCLK */
+		RCC->CFGR |= (uint32_t)RCC_CFGR_PPRE_DIV1;
+
+		/* PLL configuration = HSE * 2 = 54 MHz */
+		RCC->CFGR &= (uint32_t)((uint32_t)~(RCC_CFGR_PLLSRC | RCC_CFGR_PLLXTPRE | RCC_CFGR_PLLMULL));
+		RCC->CFGR |= (uint32_t)(RCC_CFGR_PLLSRC_PREDIV1 | RCC_CFGR_PLLXTPRE_PREDIV1 | RCC_CFGR_PLLMULL2);
+
+		/* Enable PLL */
+		RCC->CR |= RCC_CR_PLLON;
+
+		/* Wait till PLL is ready */
+		while((RCC->CR & RCC_CR_PLLRDY) == 0)
+		{
+		}
+
+		/* Select PLL as system clock source */
+		RCC->CFGR &= (uint32_t)((uint32_t)~(RCC_CFGR_SW));
+		RCC->CFGR |= (uint32_t)RCC_CFGR_SW_PLL;
+
+		/* Wait till PLL is used as system clock source */
+		while ((RCC->CFGR & (uint32_t)RCC_CFGR_SWS) != (uint32_t)RCC_CFGR_SWS_PLL)
+		{
+		}
+	}
+	else
+	{ /* If HSE fails to start-up, the application will have wrong clock
+		 configuration. User can add here some code to deal with this error */
+	}
+}
+
+static uint16_t adcSamplesArr[2][8][8];		//buf x nsample x nchannel
+static uint16_t adcSamples[8];
+static uint8_t channels = 7;
+
+//inline void SendToPc(uint16_t* Samples)
+//{
+//	for(uint8_t c = 0; c < channels; c++)
+//	{
+
+//	}
+//}
 
 extern "C"
 {
@@ -32,46 +109,90 @@ extern "C"
 	void SysTick_Handler()
 	{
 	}
+	void DMA1_Channel1_IRQHandler()
+	{
+		uint8_t nbuf;
+		if(DMA1->ISR & DMA_ISR_HTIF1)	//half transfer
+			nbuf = 0;
+		else if(DMA1->ISR & DMA_ISR_TCIF1)	//transfer complete
+			nbuf = 1;
+		else goto END;
+		for(uint8_t n = 0; n < 8; n++)
+		{
+			for(uint8_t c = 0; c < channels; c++)
+				adcSamples[c] += adcSamplesArr[nbuf][n][c];
+		}
+		for(uint8_t c = 0; c < channels; c++)
+		{
+			Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
+			if(c < channels - 1) Usart::Putch(';');
+		}
+		Usart::NewLine();
+	END:
+		DMA1->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CGIF1;
+		__NOP();
+		GreenLed::Toggle();
+	}
+	void ADC1_IRQHandler()
+	{
+
+	}
 }
 
-void Putc(uint8_t ch)
-{
-	Usart::Putch(ch);
-}
 int main()
 {
+	ClockInit();
 	{
 		using namespace Gpio;
 		EnablePorts<Porta, Portb>();
 		GreenLed::SetConfig<OutputSlow, PushPull>();
-		Pb0::SetConfig<Input, Analog>();
-		Pa8::SetConfig<OutputFastest, AltPushPull>();
-		Pa8::AltFuncNumber<AF::_2>();					//TIM1 CH1
-		Pa6::SetConfig<OutputFast, PushPull>();
-		Pa6::Clear();
+//		Pb0::SetConfig<Input, Analog>();
+//		Pa8::SetConfig<OutputFastest, AltPushPull>();
+//		Pa8::AltFuncNumber<AF::_2>();					//TIM1 CH1
+//		Pa6::SetConfig<OutputFast, PushPull>();
+//		Pa6::Clear();
 	}
+
 	Usart::Init<Usarts::DefaultCfg, Usarts::BaudRate<921600UL>>();
-
+//	{
+//		using namespace Timers;
+//		Tim1::Init<ARRbuffered | UpCount, 1, 512>();
+//		Tim1::ChannelInit<Ch1, Output, Out_PwmMode1>();
+//		Tim1::ChannelEnable<Ch1>();
+//		Tim1::Enable();
+//	}
 	{
-		using namespace Timers;
-		Tim1::Init<ARRbuffered | UpCount, 1, 512>();
-		Tim1::ChannelInit<Ch1, Output, Out_PwmMode1>();
-		Tim1::ChannelEnable<Ch1>();
-		Tim1::Enable();
+	using namespace Adcs;
+	Dmas::EnableClock();
+	Adc::Init<DownScan | Continuous,
+			Clock::PclkDiv4,
+			InitChannels<Ch::Pa0_0 | Ch::Pa1_1 | Ch::Pa2_2 | Ch::Pa3_3 | Ch::Pa4_4 | Ch::Pa5_5 | Ch::Pa6_6>,
+			EnableDma<DmaMode::OneShot>
+									>();
+	Adc::SetTsample<Tsample::_28c5>();
+	}{
+		using namespace Dmas;
+		Adc::DmaInit<Circular | TransferCompleteIRQ>(adcSamplesArr);
 	}
 
-	Adc::Init<Adcs::DefaultConfig | Adcs::Discontinuous,
-			Adcs::Clock::PclkDiv4,
-			Adcs::InitChannels<Adcs::Ch::Pb0_8 | Adcs::Ch::Pb1_9, true>
-									>();
-	Adc::SetTsample<Adcs::Tsample::_71c5>();
-
-	IO::Ostream cout(Putc);
-	__DSB();
-	cout << 20UL/* << IO::endl*/;
-	__DSB();
-//	Usart::Puts("\r\nHello");
-//-------
+	uint32_t channelsMask = Populate(channels) << (8 - channels);
+	Adc::SelectChannels(channelsMask);
+	Adc::Dma::SetCounter(channels * 8);		//8 samples, double buffering
+	Adc::Dma::Enable();
+	Usart::Puts("Hello\r\n");
+	delay_ms<1000>();
+	while(true)
+	{
+		Adc::Start();
+//		for(uint8_t c = 0; c < channels; ++c)
+//		{
+//			Usart::Puts<DataFormat::Dec>(adcSamples[c]);
+//
+//		}
+//		Usart::NewLine();
+//		GreenLed::Toggle();
+		delay_ms<5>();
+	}
 	uint8_t* str;
 	while(true)
 	{
@@ -86,4 +207,10 @@ int main()
 		SysTick_Config(100 * (F_CPU/(1000 * 8)), true);
 	}
 }
+//	IO::Ostream cout(Putc);
+//	__DSB();
+//	cout << 20UL/* << IO::endl*/;
+//	__DSB();
+//	Usart::Puts("\r\nHello");
+//-------
 
