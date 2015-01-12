@@ -9,38 +9,39 @@ CppApplication
 	cpp.optimization: "small"
 	cpp.debugInformation: false
 	cpp.defines: [ "STM32F030", "DONTSETCLOCK" ]
-	property stringList commonLinkerCFlags:
-	[
-		"-mthumb",
-		"-mcpu=cortex-m0",
-		"-mtune=cortex-m0",
-		"-flto"
-		//"-nostdlib", "-nodefaultlibs"
-	]
+    property stringList commonFlags:
+    [
+        "-mcpu=cortex-m0",
+        "-mtune=cortex-m0",
+        "-mthumb",
+        "-flto",
+        "-Wno-vla"
+        //"-nostdlib", "-nodefaultlibs"
+    ]
 	property stringList commonLinkerCppFlags:
 	[
 		"-fno-rtti",
 		"-fno-exceptions",
 		"-fno-threadsafe-statics",
-	].concat(commonLinkerCFlags)
+    ]
 	cpp.commonCompilerFlags:
 	[
-		"-fdata-sections",
+        "-fdata-sections",
 		"-ffunction-sections",
 		"-fshort-enums",
 		"-ffreestanding",
-		"--specs=nano.specs",
-		"-mno-lra"
-	]
-	cpp.cFlags: ["-std=c11"].concat(commonLinkerCFlags)
-	cpp.cxxFlags: ["-std=c++14"].concat(commonLinkerCppFlags)
+        "--specs=nano.specs",
+        "-mno-lra"
+    ].concat(commonFlags)
+    cpp.cFlags: ["-std=c11"].concat(commonFlags)
+    cpp.cxxFlags: ["-std=c++14"].concat(commonLinkerCppFlags)
 	cpp.linkerFlags:
 	[
 		"-nostartfiles",
 		"-Wl,--gc-sections",
 		"-lnosys","-lgcc","-lc", "-lm"
 //		"-v", "-Wl,--Map=c:/Projects/output.map", "-lstdc++"
-	].concat(commonLinkerCFlags, commonLinkerCppFlags)
+    ].concat(commonLinkerCppFlags, commonFlags)
 	cpp.linkerScripts: platform + "/Linker.ld "
 	cpp.includePaths:
 	[

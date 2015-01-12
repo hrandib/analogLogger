@@ -19,7 +19,7 @@ using flag = Mcucpp::Pb0;
 #include "usart.h"
 
 using namespace Mcucpp;
-using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::RemapUsart1_Pa9Pa10, 128, 16>;
+using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::RemapUsart1_Pa9Pa10, 2048, 16>;
 DECLAREIRQ(Usart, USART1)
 
 void ClockInit()
@@ -84,17 +84,14 @@ void ClockInit()
 	}
 }
 
+constexpr uint8_t channels = 7;
+
+constexpr uint16_t GetDivider(uint8_t nf)
+{
+	return nf == 8 ? 2 : 1 << ((8 - nf) << 1);
+}
+
 static uint16_t adcSamplesArr[2][8][8];		//buf x nsample x nchannel
-static uint16_t adcSamples[8];
-static uint8_t channels = 7;
-
-//inline void SendToPc(uint16_t* Samples)
-//{
-//	for(uint8_t c = 0; c < channels; c++)
-//	{
-
-//	}
-//}
 
 extern "C"
 {
@@ -111,23 +108,35 @@ extern "C"
 	}
 	void DMA1_Channel1_IRQHandler()
 	{
+//		static uint16_t adcSamples[8];
 		uint8_t nbuf;
+//		static uint8_t sCount;
 		if(DMA1->ISR & DMA_ISR_HTIF1)	//half transfer
 			nbuf = 0;
 		else if(DMA1->ISR & DMA_ISR_TCIF1)	//transfer complete
 			nbuf = 1;
 		else goto END;
-		for(uint8_t n = 0; n < 8; n++)
+		for(uint8_t c = 0; c < channels; ++c)
 		{
-			for(uint8_t c = 0; c < channels; c++)
-				adcSamples[c] += adcSamplesArr[nbuf][n][c];
-		}
-		for(uint8_t c = 0; c < channels; c++)
-		{
-			Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
-			if(c < channels - 1) Usart::Putch(';');
+			Usart::Puts("Ch:");
+			Usart::Puts<DataFormat::Dec>(c);
+			for(uint8_t s = 0; s < 8; ++s)
+			{
+//				adcSamples[c] += (*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c];
+				Usart::Puts(" S:");
+				Usart::Puts<DataFormat::Dec>(s);
+				Usart::Puts("  ");
+				Usart::Puts<DataFormat::Dec>((*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c]);
+				Usart::Putch(' ');
+			}
+				Usart::NewLine();
+//				Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
+//				adcSamples[c] = 0;
+//				if(c < channels - 1) Usart::Putch(';');
 		}
 		Usart::NewLine();
+//			Usart::NewLine();
+//			Usart::Putch('\r');
 	END:
 		DMA1->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CGIF1;
 		__NOP();
@@ -154,36 +163,38 @@ int main()
 	}
 
 	Usart::Init<Usarts::DefaultCfg, Usarts::BaudRate<921600UL>>();
-//	{
-//		using namespace Timers;
-//		Tim1::Init<ARRbuffered | UpCount, 1, 512>();
-//		Tim1::ChannelInit<Ch1, Output, Out_PwmMode1>();
-//		Tim1::ChannelEnable<Ch1>();
-//		Tim1::Enable();
-//	}
 	{
+		using namespace Timers;
+		Tim3::Init<ARRbuffered | UpCount, F_CPU / (16384 * 32), GetDivider(1)>();
+		Tim3::MasterModeSelect(MM_Update);
+		Tim3::Enable();
+	}{
 	using namespace Adcs;
 	Dmas::EnableClock();
-	Adc::Init<DownScan | Continuous,
+	Adc::Init<Single | DownScan,
 			Clock::PclkDiv4,
 			InitChannels<Ch::Pa0_0 | Ch::Pa1_1 | Ch::Pa2_2 | Ch::Pa3_3 | Ch::Pa4_4 | Ch::Pa5_5 | Ch::Pa6_6>,
-			EnableDma<DmaMode::OneShot>
+			EnableExtTrigger<TrigEdge::Rising, TrigEvent::Tim3_Trgo>,
+			EnableDma<DmaMode::Circular>
 									>();
-	Adc::SetTsample<Tsample::_28c5>();
+	Adc::SetTsample<Tsample::_71c5>();
 	}{
 		using namespace Dmas;
-		Adc::DmaInit<Circular | TransferCompleteIRQ>(adcSamplesArr);
+		Adc::DmaInit<Circular | HalfTransferIRQ | TransferCompleteIRQ>(adcSamplesArr);
 	}
-
-	uint32_t channelsMask = Populate(channels) << (8 - channels);
+	uint32_t channelsMask = Populate(channels) << (7 - channels);
 	Adc::SelectChannels(channelsMask);
-	Adc::Dma::SetCounter(channels * 8);		//8 samples, double buffering
+	Adc::Dma::SetCounter(channels * 16);		//8 samples, double buffering
 	Adc::Dma::Enable();
-	Usart::Puts("Hello\r\n");
-	delay_ms<1000>();
+	Adc::Start();
+	Usart::Puts("\r\nAnalog Data Logger v1.0\r\n");
 	while(true)
 	{
-		Adc::Start();
+//		if(TIM3->SR & TIM_SR_UIF)
+//		{
+//			TIM3->SR = ~TIM_SR_UIF;
+//			GreenLed::Toggle();
+//		}
 //		for(uint8_t c = 0; c < channels; ++c)
 //		{
 //			Usart::Puts<DataFormat::Dec>(adcSamples[c]);
@@ -191,7 +202,8 @@ int main()
 //		}
 //		Usart::NewLine();
 //		GreenLed::Toggle();
-		delay_ms<5>();
+//		Adc::Start();
+		delay_us<40>();
 	}
 	uint8_t* str;
 	while(true)
