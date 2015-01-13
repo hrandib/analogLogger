@@ -12,14 +12,11 @@ constexpr uint64_t F_CPU = 54000000ULL;
 #include "adc.h"
 #include "streams.h"
 
-using GreenLed = Mcucpp::Pa7;
-using flag = Mcucpp::Pb0;
-
 #define USARTECHO
 #include "usart.h"
 
 using namespace Mcucpp;
-using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::RemapUsart1_Pa9Pa10, 2048, 16>;
+using Usart = Usarts::UsartIrq<USART1_BASE, Usarts::RemapUsart1_Pa9Pa10, 128, 16>;
 DECLAREIRQ(Usart, USART1)
 
 void ClockInit()
@@ -83,15 +80,15 @@ void ClockInit()
 		 configuration. User can add here some code to deal with this error */
 	}
 }
-
-constexpr uint8_t channels = 7;
+constexpr uint8_t channelsQuantity = 4;
+static uint8_t channels = 2;
 
 constexpr uint16_t GetDivider(uint8_t nf)
 {
 	return nf == 8 ? 2 : 1 << ((8 - nf) << 1);
 }
 
-static uint16_t adcSamplesArr[2][8][8];		//buf x nsample x nchannel
+static uint16_t adcSamplesArr[2][8][channelsQuantity];		//buf x nsample x nchannel
 
 extern "C"
 {
@@ -100,11 +97,8 @@ extern "C"
 		while(true)
 		{
 			delay_ms<50>();
-			GreenLed::Toggle();
+		//GreenLed::Toggle();
 		}
-	}
-	void SysTick_Handler()
-	{
 	}
 	void DMA1_Channel1_IRQHandler()
 	{
@@ -117,90 +111,61 @@ extern "C"
 		else goto END;
 		for(uint8_t c = 0; c < channels; ++c)
 		{
-//			Usart::Puts("Ch:");
-//			Usart::Puts<DataFormat::Dec>(c);
 			for(uint8_t s = 0; s < 8; ++s)
 			{
 				adcSamples[c] += (*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c];
-//				Usart::Puts(" S:");
-//				Usart::Puts<DataFormat::Dec>(s);
-//				Usart::Puts("  ");
-//				Usart::Puts<DataFormat::Dec>((*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c]);
-//				Usart::Putch(' ');
 			}
-//				Usart::NewLine();
+				Usart::NewLine();
 				Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
 				adcSamples[c] = 0;
 				if(c < channels - 1) Usart::Putch(';');
 		}
-//		Usart::NewLine();
 		Usart::Putch('\r');
 	END:
 		DMA1->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CGIF1;
 		__NOP();
-		GreenLed::Toggle();
-	}
-	void ADC1_IRQHandler()
-	{
-
 	}
 }
 
 int main()
 {
 	ClockInit();
+	Dmas::EnableClock();
 	{
 		using namespace Gpio;
 		EnablePorts<Porta, Portb>();
-		GreenLed::SetConfig<OutputSlow, PushPull>();
-//		Pb0::SetConfig<Input, Analog>();
-//		Pa8::SetConfig<OutputFastest, AltPushPull>();
-//		Pa8::AltFuncNumber<AF::_2>();					//TIM1 CH1
-//		Pa6::SetConfig<OutputFast, PushPull>();
-//		Pa6::Clear();
 	}
 
 	Usart::Init<Usarts::DefaultCfg, Usarts::BaudRate<921600UL>>();
 	{
 		using namespace Timers;
-		Tim3::Init<ARRbuffered | UpCount, F_CPU / 16384, GetDivider(8)>();
+		Tim3::Init<ARRbuffered | UpCount, F_CPU / (16384 * 8), 2>();
 		Tim3::MasterModeSelect(MM_Update);
 		Tim3::Enable();
 	}{
-	using namespace Adcs;
-	Dmas::EnableClock();
-	Adc::Init<Single | DownScan,
-			Clock::PclkDiv4,
-			InitChannels<Ch::Pa0_0 | Ch::Pa1_1 | Ch::Pa2_2 | Ch::Pa3_3 | Ch::Pa4_4 | Ch::Pa5_5 | Ch::Pa6_6>,
-			EnableExtTrigger<TrigEdge::Rising, TrigEvent::Tim3_Trgo>,
-			EnableDma<DmaMode::Circular>
-									>();
-	Adc::SetTsample<Tsample::_71c5>();
+		using namespace Adcs;
+		Adc::Init<Single | DownScan,
+				Clock::PclkDiv4,
+				InitChannels<Ch::Pa0_0 | Ch::Pa1_1 | Ch::Pa2_2 | Ch::Pa3_3
+								| Ch::Pa4_4 | Ch::Pa5_5 | Ch::Pa6_6 | Ch::Pa7_7>,
+				EnableExtTrigger<TrigEdge::Rising, TrigEvent::Tim3_Trgo>,
+				EnableDma<DmaMode::Circular>
+										>();
+		Adc::SetTsample<Tsample::_41c5>();
 	}{
 		using namespace Dmas;
 		Adc::DmaInit<Circular | HalfTransferIRQ | TransferCompleteIRQ>(adcSamplesArr);
 	}
-	uint32_t channelsMask = Populate(channels) << (7 - channels);
+
+	uint32_t channelsMask = Populate(channels) << (channelsQuantity - channels);
 	Adc::SelectChannels(channelsMask);
 	Adc::Dma::SetCounter(channels * 16);		//8 samples, double buffering
 	Adc::Dma::Enable();
 	Adc::Start();
 	Usart::Puts("\r\nAnalog Data Logger v1.0\r\n");
+	//TODO: Enable watchdog
 	while(true)
 	{
-//		if(TIM3->SR & TIM_SR_UIF)
-//		{
-//			TIM3->SR = ~TIM_SR_UIF;
-//			GreenLed::Toggle();
-//		}
-//		for(uint8_t c = 0; c < channels; ++c)
-//		{
-//			Usart::Puts<DataFormat::Dec>(adcSamples[c]);
-//
-//		}
-//		Usart::NewLine();
-//		GreenLed::Toggle();
-//		Adc::Start();
 		delay_us<40>();
 	}
 	uint8_t* str;
@@ -212,15 +177,6 @@ int main()
 			while(!(str = Usarts::GetStr<Usart>()))
 				;
 		}
-		GreenLed::Clear();
-		Tim1::Ccr1() = 4;
-		SysTick_Config(100 * (F_CPU/(1000 * 8)), true);
 	}
 }
-//	IO::Ostream cout(Putc);
-//	__DSB();
-//	cout << 20UL/* << IO::endl*/;
-//	__DSB();
-//	Usart::Puts("\r\nHello");
-//-------
 
