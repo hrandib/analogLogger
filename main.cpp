@@ -108,9 +108,8 @@ extern "C"
 	}
 	void DMA1_Channel1_IRQHandler()
 	{
-//		static uint16_t adcSamples[8];
+		static uint16_t adcSamples[8];
 		uint8_t nbuf;
-//		static uint8_t sCount;
 		if(DMA1->ISR & DMA_ISR_HTIF1)	//half transfer
 			nbuf = 0;
 		else if(DMA1->ISR & DMA_ISR_TCIF1)	//transfer complete
@@ -118,25 +117,24 @@ extern "C"
 		else goto END;
 		for(uint8_t c = 0; c < channels; ++c)
 		{
-			Usart::Puts("Ch:");
-			Usart::Puts<DataFormat::Dec>(c);
+//			Usart::Puts("Ch:");
+//			Usart::Puts<DataFormat::Dec>(c);
 			for(uint8_t s = 0; s < 8; ++s)
 			{
-//				adcSamples[c] += (*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c];
-				Usart::Puts(" S:");
-				Usart::Puts<DataFormat::Dec>(s);
-				Usart::Puts("  ");
-				Usart::Puts<DataFormat::Dec>((*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c]);
-				Usart::Putch(' ');
+				adcSamples[c] += (*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c];
+//				Usart::Puts(" S:");
+//				Usart::Puts<DataFormat::Dec>(s);
+//				Usart::Puts("  ");
+//				Usart::Puts<DataFormat::Dec>((*(uint16_t(*)[2][8][channels])adcSamplesArr)[nbuf][s][c]);
+//				Usart::Putch(' ');
 			}
-				Usart::NewLine();
-//				Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
-//				adcSamples[c] = 0;
-//				if(c < channels - 1) Usart::Putch(';');
+//				Usart::NewLine();
+				Usart::Puts<DataFormat::Dec>(adcSamples[c] / 8);
+				adcSamples[c] = 0;
+				if(c < channels - 1) Usart::Putch(';');
 		}
-		Usart::NewLine();
-//			Usart::NewLine();
-//			Usart::Putch('\r');
+//		Usart::NewLine();
+		Usart::Putch('\r');
 	END:
 		DMA1->IFCR = DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CGIF1;
 		__NOP();
@@ -165,7 +163,7 @@ int main()
 	Usart::Init<Usarts::DefaultCfg, Usarts::BaudRate<921600UL>>();
 	{
 		using namespace Timers;
-		Tim3::Init<ARRbuffered | UpCount, F_CPU / (16384 * 32), GetDivider(1)>();
+		Tim3::Init<ARRbuffered | UpCount, F_CPU / 16384, GetDivider(8)>();
 		Tim3::MasterModeSelect(MM_Update);
 		Tim3::Enable();
 	}{
